@@ -28,6 +28,21 @@ except:
 UNK_HASH = "UnknownHash"
 
 
+def resolve_path_case(path):
+	if os.path.exists(path):
+		return path
+	directory = os.path.dirname(path)
+	try:
+		filenames = os.listdir(directory or ".")
+	except OSError:
+		return path
+	basename = os.path.basename(path)
+	for filename in filenames:
+		if filename.casefold() == basename.casefold():
+			return os.path.join(directory, filename)
+	return path
+
+
 def oodle_compress_chunk(args):
 	"""Picklable function for ThreadPoolExecutor"""
 	uncompressed_bytes, oodle_codec, oodle_level = args
@@ -1115,10 +1130,10 @@ class OvlFile(Header):
 			# JWE style
 			# note that for some reason self.is_dev is set to True by default
 			if is_jwe(self) or is_jwe2(self) or is_jwe2dev(self):
-				archive_entry.ovs_path = f"{self.path_no_ext}.ovs.{archive_entry.name.lower()}"
+				archive_entry.ovs_path = resolve_path_case(f"{self.path_no_ext}.ovs.{archive_entry.name.lower()}")
 			# DLA, PZ, PC, ZTUAC Style
 			else:
-				archive_entry.ovs_path = f"{self.path_no_ext}.ovs"
+				archive_entry.ovs_path = resolve_path_case(f"{self.path_no_ext}.ovs")
 
 	@staticmethod
 	def get_dep_hash(name):
