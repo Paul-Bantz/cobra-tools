@@ -202,6 +202,7 @@ def cmd_extract(args: argparse.Namespace) -> None:
     os.makedirs(out_dir, exist_ok=True)
 
     ovl = OvlFile()
+    ovl.load_hash_table()
 
     # Optional override: if user passes -g, we force that game
     game = resolve_game_label(args.game)
