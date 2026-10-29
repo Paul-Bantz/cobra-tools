@@ -76,7 +76,7 @@ class OvsFile(OvsHeader):
 				logging.debug(f"Oodle compression")
 				if not oodle_compressor:
 					reporter.show_error(f"Can't run Oodle to decompress this archive")
-					raise
+					raise RuntimeError("Oodle decompressor unavailable – on Linux install 'pyooz' (pip install pyooz)")
 				decompressed = oodle_compressor.decompress(compressed_bytes, len(compressed_bytes), uncompressed_size)
 			elif self.ovl.user_version.compression == Compression.ZLIB:
 				logging.debug("Zlib compression")
@@ -96,6 +96,8 @@ class OvsFile(OvsHeader):
 	def compress(self, uncompressed_bytes, use_threads=True):
 		"""Compress uncompressed_bytes according to ovl settings"""
 		if self.ovl.user_version.compression == Compression.OODLE:
+			if not oodle_compressor:
+				raise RuntimeError("Oodle compressor unavailable; Oodle compression requires the Windows Oodle DLL")
 			try:
 				oodle_level = self.ovl.cfg.get("oodle_level", 5)
 				# todo - allow changing codec from cfg?
@@ -121,7 +123,9 @@ class OvsFile(OvsHeader):
 					compressed = b"".join(oodle_compress_chunk(chunk) for chunk in chunks)
 
 				return len(uncompressed_bytes), len(compressed), compressed
-			except:
+			except NotImplementedError:
+				raise
+			except Exception:
 				logging.exception(f"Oodle compression failed, falling back to Zlib")
 				self.ovl.user_version.compression = Compression.ZLIB
 

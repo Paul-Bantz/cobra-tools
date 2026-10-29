@@ -135,4 +135,107 @@ class OodleDecompressor:
         return output.raw
 
 
-oodle_compressor = OodleDecompressor(oodle_dll)
+class OozDecompressor:
+    """Oodle decompression fallback backed by the open-source ooz library."""
+
+    BLOCK_SIZE = 262144
+    MODERN_DECODERS = (6, 10, 12)  # Kraken, Mermaid/Selkie, Leviathan
+
+    def __init__(self) -> None:
+        import ooz
+        self._ooz = ooz
+
+    def compress(self, payload: bytes, codec_name: str = "Kraken", level: int = 6) -> bytes:
+        raise NotImplementedError(
+            "Oodle compression requires the Windows Oodle DLL; "
+            "ooz fallback only supports decompression"
+        )
+
+    def decompress(self, payload: bytes, size: int, output_size: int) -> bytes:
+        payload = payload[:size]
+        try:
+            result = self._ooz.decompress(payload, output_size)
+        except RuntimeError as direct_error:
+            try:
+                result = self._decompress_restart_blocks(payload, output_size)
+            except (RuntimeError, ValueError):
+                raise direct_error
+        if len(result) != output_size:
+            raise ValueError(
+                f"Decompression failed output_size={len(result)} expected={output_size}"
+            )
+        return result
+
+    def _decompress_restart_blocks(self, payload: bytes, output_size: int) -> bytes:
+        """Decompress independently encoded modern Oodle restart blocks.
+
+        ooz does not reset the Kraken dictionary base when a new restart block
+        is encountered in one input buffer. Cobra archives can contain several
+        such blocks, so retry each independently encoded block on its own.
+        """
+        payload_offset = 0
+        output_offset = 0
+        blocks = []
+        while output_offset < output_size:
+            block_output_size = min(self.BLOCK_SIZE, output_size - output_offset)
+            block_end = self._restart_block_end(payload, payload_offset, block_output_size)
+            block = self._ooz.decompress(payload[payload_offset:block_end], block_output_size)
+            if len(block) != block_output_size:
+                raise ValueError(
+                    f"Decompression failed output_size={len(block)} expected={block_output_size}"
+                )
+            blocks.append(block)
+            payload_offset = block_end
+            output_offset += block_output_size
+        if payload_offset != len(payload):
+            raise ValueError(
+                f"Decompression left {len(payload) - payload_offset} compressed bytes unread"
+            )
+        return b"".join(blocks)
+
+    def _restart_block_end(self, payload: bytes, offset: int, output_size: int) -> int:
+        if offset + 2 > len(payload):
+            raise ValueError("Truncated Oodle restart block header")
+
+        flags = payload[offset]
+        decoder = payload[offset + 1] & 0x7f
+        if flags & 0xbf != 0x8c or decoder not in self.MODERN_DECODERS:
+            raise ValueError("Unsupported Oodle restart block")
+
+        cursor = offset + 2
+        if flags & 0x40:  # uncompressed block
+            block_end = cursor + output_size
+        else:
+            checksum_size = 3 if payload[offset + 1] & 0x80 else 0
+            if cursor + 3 + checksum_size > len(payload):
+                raise ValueError("Truncated Oodle quantum header")
+            quantum_header = int.from_bytes(payload[cursor:cursor + 3], "big")
+            compressed_size = quantum_header & 0x3ffff
+            if compressed_size != 0x3ffff:
+                block_end = cursor + 3 + checksum_size + compressed_size + 1
+            elif quantum_header >> 18 == 1:  # memset block
+                block_end = cursor + 4
+            else:
+                raise ValueError("Unsupported special Oodle quantum")
+
+        if block_end > len(payload):
+            raise ValueError("Truncated Oodle restart block")
+        return block_end
+
+
+try:
+    oodle_compressor = OodleDecompressor(oodle_dll)
+except Exception as dll_error:
+    logging.warning(
+        "Could not load the Windows Oodle DLL (%s); trying the ooz decompression fallback",
+        dll_error,
+    )
+    try:
+        oodle_compressor = OozDecompressor()
+    except Exception as ooz_error:
+        logging.error(
+            "No Oodle decompressor is available (%s). Install pyooz with "
+            "'pip install pyooz' to extract Oodle-compressed archives.",
+            ooz_error,
+        )
+        oodle_compressor = None

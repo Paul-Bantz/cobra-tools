@@ -13,6 +13,7 @@ dependencies = [
     "numpy>=1.26.4,<2.0.0",  # blender is built with < 2.0.0 for now
     "pillow>=10.0.1",
     "bitarray~=2.9.2",
+    "pyooz~=0.0.8; sys_platform != 'win32'",
 ]
 optional-dependencies.gui = [
     "PyQt5~=5.15.4",

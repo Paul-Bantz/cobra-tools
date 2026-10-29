@@ -1,3 +1,5 @@
+launch example : python ovl_tool_cmd.py extract -g 'Jurassic World Evolution 3' -o /tmp/trex/out '/home/pbantzhaff/.local/share/Steam/steamapps/common/Jurassic World Evolution 3/Win64/ovldata/Content0/Dinosaurs/Land/TyrannosaurusRexFeathered/TyrannosaurusRexFeathered.ovl
+
 # cobra-tools
 "~~Life~~ Modding finds a way."
 
