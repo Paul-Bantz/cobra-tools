@@ -29,7 +29,7 @@ def import_armature(scene, model_info, b_bone_names, mdl2_coll):
 			armature_ob = bpy.data.objects[bone_info.name]
 			return armature_ob
 		b_armature_data = bpy.data.armatures.new(bone_info.name)
-		b_armature_data.display_type = 'STICK'
+		b_armature_data.display_type = 'OCTAHEDRAL'
 		# b_armature_data.show_axes = True
 		armature_ob = create_ob(scene, bone_info.name, b_armature_data, coll=mdl2_coll)
 		armature_ob.show_in_front = True
@@ -281,9 +281,16 @@ def import_ik(scene, armature_ob, bone_info, b_bone_names, corrector, long_name_
 				break
 
 	# create a copy location constraint for each ik target
+	ik_targets_collection = armature_ob.data.collections.get("IK Targets")
+	if ik_targets_collection is None:
+		ik_targets_collection = armature_ob.data.collections.new("IK Targets")
+	ik_targets_collection.is_visible = True
 	for ik_target in ik.ik_targets:
 		end_name = ik_target.ik_end.joint.name
 		target_name = ik_target.ik_blend.joint.name
+		b_target = armature_ob.data.bones[get_name(target_name)]
+		ik_targets_collection.assign(b_target)
+		b_target.color.palette = 'THEME09'
 		# copy rot of the IK controller
 		p_bone = armature_ob.pose.bones[get_name(end_name)]
 		b_copy = p_bone.constraints.new("COPY_ROTATION")
@@ -306,6 +313,37 @@ def import_ik(scene, armature_ob, bone_info, b_bone_names, corrector, long_name_
 		p_bone = armature_ob.pose.bones[get_name(child)]
 		b_ik = p_bone.constraints.new("IK")
 		b_ik.chain_count = len(parents)
+		b_ik.enabled = False
+
+
+def organize_bone_collections(armature_ob):
+	"""Separate weighted deform bones from rig helpers for easier posing."""
+	if armature_ob is None:
+		return
+	weighted_bone_names = {
+		group.name
+		for child in armature_ob.children
+		if child.type == 'MESH'
+		for group in child.vertex_groups
+	}
+	b_armature_data = armature_ob.data
+	deform_collection = b_armature_data.collections.get("Deform")
+	if deform_collection is None:
+		deform_collection = b_armature_data.collections.new("Deform")
+	deform_collection.is_visible = True
+	helpers_collection = b_armature_data.collections.get("Helpers")
+	if helpers_collection is None:
+		helpers_collection = b_armature_data.collections.new("Helpers")
+	helpers_collection.is_visible = False
+	for bone in b_armature_data.bones:
+		if bone.name in weighted_bone_names:
+			bone.use_deform = True
+			deform_collection.assign(bone)
+			helpers_collection.unassign(bone)
+		else:
+			bone.use_deform = False
+			helpers_collection.assign(bone)
+			deform_collection.unassign(bone)
 
 
 def import_joints(scene, armature_ob, bone_info, b_bone_names, corrector, mdl2_coll):

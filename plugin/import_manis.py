@@ -8,7 +8,7 @@ import mathutils
 import numpy as np
 
 from generated.formats.manis import ManisFile
-from generated.formats.manis.versions import is_ztuac, is_dla
+from generated.formats.manis.versions import get_game, is_ztuac, is_dla
 from generated.formats.wsm.structs.WsmHeader import WsmHeader
 from plugin.modules_export.armature import get_armature
 from plugin.modules_import.anim import Animation
@@ -107,7 +107,11 @@ def load(reporter, files=(), filepath="", disable_ik=False, set_fps=False):
 			b_local_inv_mats[bone.name] = get_b_local_matrix(bone).inverted()
 	cam_corr = None
 
+	skipped = []
 	for mi in manis.mani_infos:
+		if not hasattr(mi, "keys"):
+			skipped.append(mi.name)
+			continue
 		logging.info(f"Importing {mi.name}")
 		if "_camera" in mi.name:
 			b_cam_data = bpy.data.cameras.new(mi.name)
@@ -205,7 +209,16 @@ def load(reporter, files=(), filepath="", disable_ik=False, set_fps=False):
 				key = corrector.to_blender(mat).to_scale()
 				out_keys[frame_i] = key
 
-	reporter.show_info(f"Imported {manis_name}in {time.time()-start_time:.2f} s")
+	if skipped:
+		games = " / ".join(game.value for game in get_game(manis.context))
+		preview = ", ".join(skipped[:5])
+		if len(skipped) > 5:
+			preview += f", and {len(skipped) - 5} more"
+		logging.warning(f"Skipped unsupported animations in {manis_name}: {preview}")
+		reporter.show_warning(
+			f"Skipped {len(skipped)} of {len(manis.mani_infos)} animations in {manis_name}: "
+			f"compressed {games} animations are not supported yet")
+	reporter.show_info(f"Imported {manis_name} in {time.time()-start_time:.2f} s")
 
 
 def get_constraint(p_bone, c_type="IK", create=True):

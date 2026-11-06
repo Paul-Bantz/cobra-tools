@@ -658,6 +658,9 @@ class OvlFile(Header):
 				continue
 			if _only_names and loader.name not in _only_names:
 				continue
+			# BaseFile is used for unknown extensions and has no extraction API.
+			if loader.ext not in self.formats_dict:
+				continue
 			# ignore types in the count that we export from inside other type exporters
 			if loader.ext in self.formats_dict.ignore_types:
 				continue
@@ -673,6 +676,16 @@ class OvlFile(Header):
 
 		out_dir_func = make_out_dir_func(out_dir)
 		out_paths = []
+		_only_types = [s.lower() for s in only_types]
+		_only_names = [s.lower() for s in only_names]
+		skipped_extensions = sorted({
+			loader.ext for loader in self.loaders.values()
+			if loader.ext not in self.formats_dict
+			and (not _only_types or loader.ext in _only_types)
+			and (not _only_names or loader.name in _only_names)
+		})
+		if skipped_extensions:
+			logging.warning(f"Skipping unsupported file types with no extractor: {', '.join(skipped_extensions)}")
 		loaders_for_extract = list(self.get_loaders_for_extract(only_names=only_names, only_types=only_types))
 		logging.info(f"Extracting {len(loaders_for_extract)} / {len(self.files)} files")
 		with self.reporter.report_error_files("Extracting") as error_files:

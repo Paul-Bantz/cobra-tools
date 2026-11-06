@@ -108,6 +108,20 @@ def winepath(path: str) -> str:
 	return "Z:" + path.replace("/", "\\")
 
 
+def wine_env() -> dict[str, str]:
+	"""Return a non-interactive environment for Wine subprocesses.
+
+	Disabling Wine's debugger prevents crashed command-line tools from opening a
+	modal dialog and leaving their parent process waiting for a timeout.
+	"""
+	env = os.environ.copy()
+	overrides = env.get("WINEDLLOVERRIDES", "")
+	if "winedbg.exe=d" not in overrides.lower().split(";"):
+		env["WINEDLLOVERRIDES"] = f"{overrides};winedbg.exe=d" if overrides else "winedbg.exe=d"
+	env.setdefault("WINEDEBUG", "-all")
+	return env
+
+
 def _identity_path(path: str) -> str:
 	return path
 
@@ -158,7 +172,10 @@ def run_binary(name: str, args: list[str], **kwargs) -> "subprocess.CompletedPro
 	argv, to_argpath = invocation_for_binary(name)
 	translated_args = [to_argpath(a) if isinstance(a, str) else a for a in args]
 	cmd = [*argv, *translated_args]
-	return subprocess.run(cmd, **{"check": True, **kwargs})
+	defaults = {"check": True}
+	if argv[0] == "wine":
+		defaults["env"] = wine_env()
+	return subprocess.run(cmd, **{**defaults, **kwargs})
 
 
 def requires_binary(name: str):

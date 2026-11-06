@@ -30,8 +30,9 @@ class KeysReader(BaseStruct):
 	def read_fields(cls, stream, instance):
 		instance.io_start = stream.tell()
 		for mani_info, name in zip(instance.arg.mani_infos, instance.arg.names):
-			# logging.info(mani_info)
 			mani_info.name = name
+		for mani_info in instance.arg.mani_infos:
+			# logging.info(mani_info)
 			mani_block_start = stream.tell()
 			logging.debug(f"Reading keys block at {mani_block_start}")
 			bone_dtype = Ushort if mani_info.dtype.use_ushort else Ubyte
@@ -41,8 +42,11 @@ class KeysReader(BaseStruct):
 				mani_info.keys = ManiBlock.from_stream(stream, instance.context, mani_info, bone_dtype)
 				# logging.info(mani_info.keys)
 				# break
-			except:
-				logging.exception(f"Reading ManiBlock failed at {mani_block_start} for {mani_info}")
+			except Exception:
+				logging.error(
+					f"Reading ManiBlock failed at {mani_block_start} for '{mani_info.name}' "
+					f"(dtype {int(mani_info.dtype)})")
+				logging.debug("ManiBlock parsing traceback", exc_info=True)
 				# raise
 				break
 		cls.pad_to_start(instance, stream)

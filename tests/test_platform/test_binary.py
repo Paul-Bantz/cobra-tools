@@ -21,6 +21,7 @@ from utils.shared import (
 	requires_binary,
 	resolve_binary,
 	run_binary,
+	wine_env,
 	winepath,
 )
 
@@ -250,11 +251,13 @@ def test_run_binary_translates_posix_path_args_under_wine(tmp_path):
 	with patch("utils.shared.shutil.which", return_value=None), \
 		patch.object(shared, "IS_WINDOWS", False), \
 		patch.object(shared, "WINE_AVAILABLE", True), \
+		patch("utils.shared.wine_env", return_value={"WINEDEBUG": "-all"}), \
 		patch("utils.shared.subprocess.run") as mock_run:
 		run_binary("texconv", ["-y", "-o", "/tmp/out", "/home/user/in.dds"])
 	mock_run.assert_called_once_with(
 		["wine", str(fake_exe), "-y", "-o", r"Z:\tmp\out", r"Z:\home\user\in.dds"],
 		check=True,
+		env={"WINEDEBUG": "-all"},
 	)
 
 
@@ -266,4 +269,33 @@ def test_run_binary_does_not_translate_native_invocation():
 	mock_run.assert_called_once_with(
 		["/usr/local/bin/texconv", "-o", "/tmp/out", "/home/user/in.dds"],
 		check=True,
+	)
+
+
+def test_wine_env_disables_debugger_without_mutating_process_env(monkeypatch):
+	monkeypatch.setenv("WINEDLLOVERRIDES", "mscoree=d")
+	monkeypatch.delenv("WINEDEBUG", raising=False)
+
+	env = wine_env()
+
+	assert env["WINEDLLOVERRIDES"] == "mscoree=d;winedbg.exe=d"
+	assert env["WINEDEBUG"] == "-all"
+	assert shared.os.environ["WINEDLLOVERRIDES"] == "mscoree=d"
+	assert "WINEDEBUG" not in shared.os.environ
+
+
+def test_run_binary_supplies_noninteractive_env_under_wine(tmp_path):
+	fake_exe = tmp_path / "texconv.exe"
+	fake_exe.write_bytes(b"")
+	register_binary("texconv", str(fake_exe))
+	with patch("utils.shared.shutil.which", return_value=None), \
+		patch.object(shared, "IS_WINDOWS", False), \
+		patch.object(shared, "WINE_AVAILABLE", True), \
+		patch("utils.shared.wine_env", return_value={"WINEDEBUG": "-all"}), \
+		patch("utils.shared.subprocess.run") as mock_run:
+		run_binary("texconv", [])
+	mock_run.assert_called_once_with(
+		["wine", str(fake_exe)],
+		check=True,
+		env={"WINEDEBUG": "-all"},
 	)

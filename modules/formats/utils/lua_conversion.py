@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 from modules.formats.utils import util_dir
-from utils.shared import check_any, invocation_for_binary, register_binary, requires_binary
+from utils.shared import check_any, invocation_for_binary, register_binary, requires_binary, wine_env
 
 luadec = os.path.normpath(os.path.join(util_dir, "luadec/luadec.exe"))
 luacheck = os.path.normpath(os.path.join(util_dir, "luacheck/luacheck.exe"))
@@ -13,7 +13,7 @@ luacheck = os.path.normpath(os.path.join(util_dir, "luacheck/luacheck.exe"))
 register_binary("luadec", luadec)
 register_binary("luacheck", luacheck)
 
-DECOMPILE_TIMEOUT = 10
+DECOMPILE_TIMEOUT = int(os.environ.get("COBRA_LUADEC_TIMEOUT", "10"))
 PREFAB_ROOT = b"l_0_2"
 BYTE_REPLACEMENTS_PREFAB = [
 	# Replacements for Prefab Lua specifically
@@ -61,35 +61,54 @@ def bin_to_lua(bin_path) -> tuple[bytes, str] | tuple[None, str] | tuple[None, N
 	file_name = os.path.basename(bin_path)
 	luadec_argv, to_argpath = invocation_for_binary("luadec")
 	wined_bin_path = to_argpath(bin_path)
+	proc_env = wine_env() if luadec_argv[0] == "wine" else None
+	last_err_msg = None
 	for extra_args in ([], ["-s"]):
 		cmd = [*luadec_argv, *extra_args, wined_bin_path]
+		attempt = " with -s" if extra_args else ""
 		try:
-			proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+			popen_kwargs = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
+			if proc_env is not None:
+				popen_kwargs["env"] = proc_env
+			proc = subprocess.Popen(cmd, **popen_kwargs)
 			output, err = proc.communicate(timeout=DECOMPILE_TIMEOUT)
 			err_msg = err.decode(errors='ignore').strip()
+			last_err_msg = err_msg or last_err_msg
+			if proc.returncode != 0:
+				details = err_msg or f"luadec exited with status {proc.returncode}"
+				last_err_msg = details
+				logging.error(
+					f"Decompiling {file_name}{attempt} failed with exit code {proc.returncode}",
+					extra={"details": details},
+				)
+				continue
 			if output:
 				# If there was also a message on stderr, log it as a warning
 				if err_msg:
 					logging.warning(f"Decompiler warnings for {file_name}", extra={"details": err_msg})
 				return sanitize_lua_content(output), err_msg
 			# The decompiler produced no output, but printed an error message
-			elif err_msg:
-				logging.error(f"Decompiling {file_name} failed with errors", extra={"details": err_msg})
-				return None, err_msg
+			last_err_msg = err_msg or "luadec returned no output"
+			logging.error(
+				f"Decompiling {file_name}{attempt} returned no output",
+				extra={"details": last_err_msg},
+			)
 		except subprocess.TimeoutExpired:
 			# Kill long luadec processes to recover from bad files
 			proc.kill()
 			output, err = proc.communicate()
 			err_msg = err.decode(errors='ignore').strip()
-			log_message = f"Decompiling {file_name} timed out after {DECOMPILE_TIMEOUT} seconds."
+			last_err_msg = err_msg or last_err_msg
+			log_message = f"Decompiling {file_name}{attempt} timed out after {DECOMPILE_TIMEOUT} seconds."
 			logging.error(log_message, extra={"details": err_msg})
-			return None, err_msg
-		except Exception:
-			logging.exception(f"Decompiling {file_name} failed with an unexpected error.")
-			return None, None
+			continue
+		except Exception as exc:
+			last_err_msg = str(exc) or last_err_msg
+			logging.exception(f"Decompiling {file_name}{attempt} failed with an unexpected error.")
+			continue
 
-	logging.error(f"Decompiling {file_name} returned no result.")
-	return None, None
+	logging.error(f"Decompiling {file_name} returned no result.", extra={"details": last_err_msg or ""})
+	return None, last_err_msg
 
 
 error_code_filters: dict[int, tuple[str, ...]] = {
@@ -115,7 +134,11 @@ def check_lua_syntax(lua_path):
 		cmd = [*luacheck_argv, wined_lua_path, "--codes"]
 		lua_name = os.path.basename(lua_path)
 		# capture the console output
-		bytes_output = subprocess.Popen(cmd, stdout=subprocess.PIPE).communicate()[0]
+		proc_env = wine_env() if luacheck_argv[0] == "wine" else None
+		popen_kwargs = {"stdout": subprocess.PIPE}
+		if proc_env is not None:
+			popen_kwargs["env"] = proc_env
+		bytes_output = subprocess.Popen(cmd, **popen_kwargs).communicate()[0]
 		# luacheck doesn't seem to handle non-ASCII chars when printing lua_path, so just escape them
 		output = bytes_output.decode(sys.getdefaultencoding(), errors="surrogateescape")
 		lines = [line.strip() for line in output.split("\r\n")]

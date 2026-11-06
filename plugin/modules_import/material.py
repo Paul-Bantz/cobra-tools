@@ -349,10 +349,10 @@ def create_material(reporter, in_dir, matname):
 	output = tree.nodes.new('ShaderNodeOutputMaterial')
 
 	create_color_ramps(fgm_data, tree)
-	fgm_game = get_game(fgm_data.context)[0].value
+	fgm_games = [fgm_game.value for fgm_game in get_game(fgm_data.context)]
 	game = bpy.context.scene.cobra.game
-	if game != fgm_game:
-		reporter.show_warning(f"FGM game '{fgm_game}' does not match scene game {game}")
+	if game not in fgm_games:
+		reporter.show_warning(f"FGM game '{', '.join(fgm_games)}' does not match scene game {game}")
 	try:
 		tex_channel_map = texture_settings.get_tex_channel_map(constants, game, fgm_data.shader_name)
 		# print(tex_channel_map)

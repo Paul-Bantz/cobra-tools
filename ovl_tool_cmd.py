@@ -152,6 +152,8 @@ def cmd_new(args: argparse.Namespace) -> None:
     ovl = OvlFile()
     config = Config(REPO_ROOT)
     config.load()
+    if args.lua_flatten:
+        config["lua_flatten"] = True
     ovl.cfg = config
     ovl.game = game  # same as game_changed() ultimately does
     ovl.load_hash_table()
@@ -202,6 +204,7 @@ def cmd_extract(args: argparse.Namespace) -> None:
     os.makedirs(out_dir, exist_ok=True)
 
     ovl = OvlFile()
+    ovl.cfg = {"lua_decompile": not args.no_lua_decompile}
     ovl.load_hash_table()
 
     # Optional override: if user passes -g, we force that game
@@ -380,6 +383,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Overwrite output file if it already exists.",
     )
+    p_new.add_argument(
+        "--lua-flatten",
+        action="store_true",
+        help=(
+            "Flatten Lua files in subfolders to dotted names "
+            "(a/b.lua -> a.b.lua), like the GUI 'Flatten LUA subfolders' setting."
+        ),
+    )
     p_new.set_defaults(func=cmd_new)
 
     # extract
@@ -415,6 +426,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="Restrict extraction to specific internal entry names (can repeat).",
+    )
+    p_ext.add_argument(
+        "--no-lua-decompile",
+        action="store_true",
+        help="Keep compiled Lua as .lua.bin files without attempting to decompile it.",
     )
     p_ext.set_defaults(func=cmd_extract)
 
